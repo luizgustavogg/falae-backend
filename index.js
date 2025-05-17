@@ -149,24 +149,68 @@ App.post("/chat", authToken, async (req, res) => {
   const myId = req.user.id;
   const receiverId = req.body.receiverId;
 
-  // Buscar outros usuários (exceto o atual)
+  // Buscar todos os usuários, menos o atual
   const findUser = await prisma.user.findMany({
     where: {
       NOT: { id: myId },
     },
   });
 
-  // 🔁 Se NÃO veio receiverId, não abre chat ainda — apenas retorna os usuários
+  // Se NÃO tiver receiverId, só retornar usuários com a última mensagem
   if (!receiverId) {
+    const usersWithLastMessage = await Promise.all(
+      findUser.map(async (user) => {
+        const [u1, u2] = myId < user.id ? [myId, user.id] : [user.id, myId];
+
+        const chat = await prisma.chat.findFirst({
+          where: {
+            SentChatId: u1,
+            ReceivedChatId: u2,
+          },
+          include: {
+            messages: {
+              orderBy: { createdAt: 'desc' },
+              take: 1,
+              include: {
+                sender: {
+                  select: {
+                    id: true,
+                    username: true,
+                  },
+                },
+              },
+            },
+          },
+        });
+
+        let lastMessage = null;
+
+        if (chat && chat.messages.length > 0) {
+          const msg = chat.messages[0];
+          lastMessage = {
+            id: msg.id,
+            contentMessage: msg.contentMessage,
+            createdAt: msg.createdAt,
+            sender: msg.sender,
+          };
+        }
+
+        return {
+          ...user,
+          lastMessage,
+        };
+      })
+    );
+
     return res.status(200).json({
-      users: findUser,
+      users: usersWithLastMessage,
       myName,
       myId,
-      chat: { messages: [] }, // ou null, se preferir
+      chat: { messages: [] },
     });
   }
 
-  // 🔁 Se veio receiverId, prosseguir com abertura/consulta de chat
+  // Se tiver receiverId, carregar o chat com esse usuário
   const [u1, u2] = myId < receiverId ? [myId, receiverId] : [receiverId, myId];
 
   let chat = await prisma.chat.findFirst({
@@ -189,22 +233,37 @@ App.post("/chat", authToken, async (req, res) => {
     },
   });
 
+  // Se ainda não existir chat, criar
   if (!chat) {
     chat = await prisma.chat.create({
       data: {
         SentChat: { connect: { id: u1 } },
         ReceivedChat: { connect: { id: u2 } },
       },
+      include: {
+        messages: {
+          orderBy: { createdAt: 'asc' },
+          include: {
+            sender: {
+              select: {
+                id: true,
+                username: true,
+              },
+            },
+          },
+        },
+      },
     });
   }
 
-  res.status(200).json({
+  return res.status(200).json({
     users: findUser,
     myName,
     myId,
     chat,
   });
 });
+
 
 
 App.post("/message", authToken, async (req, res) => {
@@ -221,7 +280,7 @@ App.post("/message", authToken, async (req, res) => {
       sender: {
         select: {
           id: true,
-          username: true, // 🔥 necessário!
+          username: true,
         },
       },
     },
