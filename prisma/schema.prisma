@@ -1,0 +1,51 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model user {
+  id        Int     @id @default(autoincrement())
+  username  String
+  email     String  @unique
+  password  String
+  imgAvatar String?
+
+  messages      message[]
+  sentChats     chat[]    @relation("SentChats")
+  receivedChats chat[]    @relation("ReceivedChats")
+}
+
+model chat {
+  id         Int  @id @default(autoincrement())
+  SentChat   user @relation("SentChats", fields: [SentChatId], references: [id])
+  SentChatId Int
+
+  ReceivedChat   user @relation("ReceivedChats", fields: [ReceivedChatId], references: [id])
+  ReceivedChatId Int
+
+  messages message[]
+
+  @@unique([SentChatId, ReceivedChatId]) // garante que só existe um chat entre dois usuários
+}
+
+model message {
+  id             Int      @id @default(autoincrement())
+  contentMessage String
+  createdAt      DateTime @default(now())
+
+  chat   chat @relation(fields: [chatId], references: [id])
+  chatId Int
+
+  sender   user @relation(fields: [senderId], references: [id])
+  senderId Int
+}
